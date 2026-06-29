@@ -433,6 +433,7 @@ class CreateImageForm(BaseModel):
     n: int = 1
     steps: int | None = None
     negative_prompt: str | None = None
+    batch_size: int | None = None
 
 
 GenerateImageForm = CreateImageForm  # Alias for backward compatibility
@@ -707,6 +708,7 @@ async def image_generations(
                 'width': width,
                 'height': height,
                 'n': form_data.n,
+                'batch_size': form_data.batch_size if form_data.batch_size is not None else form_data.n,
             }
 
             if request.app.state.config.IMAGE_STEPS is not None or form_data.steps is not None:
@@ -817,6 +819,7 @@ class EditImageForm(BaseModel):
     n: int | None = None
     negative_prompt: str | None = None
     background: str | None = None
+    batch_size: int | None = None
 
 
 @router.post('/edit')
@@ -1062,6 +1065,7 @@ async def image_edits(
                 **({'width': width} if width is not None else {}),
                 **({'height': height} if height is not None else {}),
                 **({'n': form_data.n} if form_data.n else {}),
+                **({'batch_size': form_data.batch_size if form_data.batch_size is not None else form_data.n} if form_data.n else {}),
             }
 
             form_data = ComfyUIEditImageForm(

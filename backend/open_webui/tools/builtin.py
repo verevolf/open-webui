@@ -11,6 +11,7 @@ from open_webui.tools.knowledge_fs import kb_exec  # noqa: F401 — re-exported
 import asyncio
 import json
 import logging
+import re
 import time
 from typing import Optional
 
@@ -31,6 +32,7 @@ from open_webui.routers.images import (
     image_edits,
     image_generations,
 )
+from open_webui.utils.files import get_image_base64_from_file_id
 from open_webui.routers.memories import (
     AddMemoryForm,
     MemoryUpdateModel,
@@ -285,32 +287,44 @@ async def fetch_url(
 
 async def generate_image(
     prompt: str,
+    batch_size: int = 1,
     __request__: Request = None,
     __user__: dict = None,
     __event_emitter__: callable = None,
     __chat_id__: str = None,
     __message_id__: str = None,
-) -> str:
+) -> list:
     """
     Generate an image based on a text prompt.
 
-    :param prompt: A detailed description of the image to generate
+    :param prompt: A detailed description of the image to generate (required)
+    :param batch_size: The number of images to generate in a single batch (optional, default 1)
     :return: Confirmation that the image was generated, or an error message
     """
     if __request__ is None:
-        return json.dumps({'error': 'Request context not available'})
+        return [{'type': 'text', 'text': json.dumps({'error': 'Request context not available'})}]
 
     try:
         user = UserModel(**__user__) if __user__ else None
 
         images = await image_generations(
             request=__request__,
-            form_data=CreateImageForm(prompt=prompt),
+            form_data=CreateImageForm(prompt=prompt, n=batch_size),
             user=user,
         )
 
         # Prepare file entries for the images
         image_files = [{'type': 'image', 'url': img['url']} for img in images]
+
+        # Fetch base64 data for each image
+        base64_images = []
+        for img in images:
+            match = re.search(r'/api/v1/files/([^/]+)/content', img['url'])
+            if match:
+                file_id = match.group(1)
+                base64_data = await get_image_base64_from_file_id(file_id, user)
+                if base64_data:
+                    base64_images.append(base64_data)
 
         # Persist files to DB if chat context is available
         if __chat_id__ and __message_id__ and images:
@@ -332,52 +346,69 @@ async def generate_image(
                     },
                 }
             )
-            # Return a message indicating the image is already displayed
-            return json.dumps(
-                {
-                    'status': 'success',
-                    'message': 'The image has been successfully generated and is already visible to the user in the chat. You do not need to display or embed the image again - just acknowledge that it has been created.',
-                    'images': images,
-                },
-                ensure_ascii=False,
-            )
 
-        return json.dumps({'status': 'success', 'images': images}, ensure_ascii=False)
+        # Build structured response with base64 images for LLM
+        text_content = json.dumps(
+            {
+                'status': 'success',
+                'message': 'The image has been successfully generated and is already visible to the user in the chat. You do not need to display or embed the image again - just acknowledge that it has been created. Below you can find URLs of the generated images and the full content  of the generated images for analysis',
+                'images': images,
+            },
+            ensure_ascii=False,
+        )
+
+        result_parts = [{'type': 'text', 'text': text_content}]
+        for b64 in base64_images:
+            result_parts.append({'type': 'image', 'data': b64})
+
+        return result_parts
     except Exception as e:
         log.exception(f'generate_image error: {e}')
-        return json.dumps({'error': str(e)})
+        return [{'type': 'text', 'text': json.dumps({'error': str(e)})}]
 
 
 async def edit_image(
     prompt: str,
-    image_urls: list[str],
+    image_uuids: list[str],
+    batch_size: int = 1,
     __request__: Request = None,
     __user__: dict = None,
     __event_emitter__: callable = None,
     __chat_id__: str = None,
     __message_id__: str = None,
-) -> str:
+) -> list:
     """
     Edit existing images based on a text prompt.
 
-    :param prompt: A description of the changes to make to the images
-    :param image_urls: A list of URLs of the images to edit
+    :param prompt: A description of the changes to make to the images (required)
+    :param image_uuids: A list of UUIDs of the images to edit (required)
+    :param batch_size: The number of images to generate in a single batch (optional, default 1)
     :return: Confirmation that the images were edited, or an error message
     """
     if __request__ is None:
-        return json.dumps({'error': 'Request context not available'})
+        return [{'type': 'text', 'text': json.dumps({'error': 'Request context not available'})}]
 
     try:
         user = UserModel(**__user__) if __user__ else None
 
         images = await image_edits(
             request=__request__,
-            form_data=EditImageForm(prompt=prompt, image=image_urls),
+            form_data=EditImageForm(prompt=prompt, image=image_uuids, n=batch_size),
             user=user,
         )
 
         # Prepare file entries for the images
         image_files = [{'type': 'image', 'url': img['url']} for img in images]
+
+        # Fetch base64 data for each image
+        base64_images = []
+        for img in images:
+            match = re.search(r'/api/v1/files/([^/]+)/content', img['url'])
+            if match:
+                file_id = match.group(1)
+                base64_data = await get_image_base64_from_file_id(file_id, user)
+                if base64_data:
+                    base64_images.append(base64_data)
 
         # Persist files to DB if chat context is available
         if __chat_id__ and __message_id__ and images:
@@ -399,20 +430,25 @@ async def edit_image(
                     },
                 }
             )
-            # Return a message indicating the image is already displayed
-            return json.dumps(
-                {
-                    'status': 'success',
-                    'message': 'The edited image has been successfully generated and is already visible to the user in the chat. You do not need to display or embed the image again - just acknowledge that it has been created.',
-                    'images': images,
-                },
-                ensure_ascii=False,
-            )
 
-        return json.dumps({'status': 'success', 'images': images}, ensure_ascii=False)
+        # Build structured response with base64 images for LLM
+        text_content = json.dumps(
+            {
+                'status': 'success',
+                'message': 'The edited image has been successfully generated and is already visible to the user in the chat. You do not need to display or embed the image again - just acknowledge that it has been created.',
+                'images': images,
+            },
+            ensure_ascii=False,
+        )
+
+        result_parts = [{'type': 'text', 'text': text_content}]
+        for b64 in base64_images:
+            result_parts.append({'type': 'image', 'data': b64})
+
+        return result_parts
     except Exception as e:
         log.exception(f'edit_image error: {e}')
-        return json.dumps({'error': str(e)})
+        return [{'type': 'text', 'text': json.dumps({'error': str(e)})}]
 
 
 # =============================================================================

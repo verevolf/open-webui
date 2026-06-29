@@ -1159,6 +1159,30 @@ async def process_tool_result(
                                 pass
                             tool_response.append(text)
             tool_result = tool_response[0] if len(tool_response) == 1 else tool_response
+        elif tool_type == 'builtin':  # Built-in tools (e.g. generate_image, edit_image)
+            tool_response = []
+            for item in tool_result:
+                if isinstance(item, dict):
+                    if item.get('type') == 'text':
+                        text = item.get('text', '')
+                        if isinstance(text, str):
+                            try:
+                                text = json.loads(text)
+                            except json.JSONDecodeError:
+                                pass
+                        tool_response.append(text)
+                    elif item.get('type') == 'image':
+                        data_uri = item.get('data', '')
+                        if data_uri:
+                            tool_result_files.append(
+                                {
+                                    'type': 'image',
+                                    'url': data_uri,
+                                }
+                            )
+                elif isinstance(item, str):
+                    tool_response.append(item)
+            tool_result = tool_response[0] if len(tool_response) == 1 else tool_response
         else:  # OpenAPI
             for item in tool_result:
                 if isinstance(item, str) and item.startswith('data:'):
@@ -4443,6 +4467,16 @@ async def streaming_chat_response_handler(response, ctx):
                                 continue
                     await flush_pending_delta_data()
 
+                    if not metadata.get('chat_id', '').startswith('channel:') and full_output():
+                        await Chats.upsert_message_to_chat_by_id_and_message_id(
+                            metadata['chat_id'],
+                            metadata['message_id'],
+                            {
+                                'content': serialize_output(full_output()),
+                                'output': full_output(),
+                            },
+                        )
+
                     if output:
                         # Clean up the last message item
                         if output[-1].get('type') == 'message':
@@ -4566,6 +4600,16 @@ async def streaming_chat_response_handler(response, ctx):
                             },
                         }
                     )
+
+                    if not metadata.get('chat_id', '').startswith('channel:'):
+                        await Chats.upsert_message_to_chat_by_id_and_message_id(
+                            metadata['chat_id'],
+                            metadata['message_id'],
+                            {
+                                'content': serialize_output(full_output()),
+                                'output': full_output(),
+                            },
+                        )
 
                     tools = metadata.get('tools', {})
 
@@ -4821,6 +4865,16 @@ async def streaming_chat_response_handler(response, ctx):
                         }
                     )
 
+                    if not metadata.get('chat_id', '').startswith('channel:'):
+                        await Chats.upsert_message_to_chat_by_id_and_message_id(
+                            metadata['chat_id'],
+                            metadata['message_id'],
+                            {
+                                'content': serialize_output(output),
+                                'output': output,
+                            },
+                        )
+
                     try:
                         new_form_data = {
                             **form_data,
@@ -4842,37 +4896,37 @@ async def streaming_chat_response_handler(response, ctx):
                                 output, raw=True, reasoning_format=get_reasoning_format(model)
                             )
 
-                            # Chat Completions providers don't support multimodal
-                            # tool messages.  Extract images into a user message.
-                            image_urls = []
                             for message in tool_messages:
                                 if message.get('role') == 'tool' and isinstance(message.get('content'), list):
                                     text_parts = []
+                                    img_parts = []
                                     for part in message['content']:
-                                        if part.get('type') == 'input_text':
+                                        if part.get('type') in ('input_text', 'text'):
                                             text_parts.append(part.get('text', ''))
-                                        elif part.get('type') == 'input_image':
-                                            image_urls.append(part.get('image_url', ''))
-                                    message['content'] = ''.join(text_parts)
+                                        elif part.get('type') in ('input_image', 'image_url'):
+                                            img_parts.append(
+                                                part.get('image_url', '') if isinstance(part.get('image_url'), str)
+                                                else part.get('image_url', {}).get('url', '')
+                                            )
+                                    if len(img_parts):
+                                        message['content'] = [{
+                                            'type': 'text',
+                                            'text': ''.join(text_parts)
+                                        }]
+                                        for img_part in img_parts:
+                                            message['content'].append(
+                                                {
+                                                    'type': 'image_url',
+                                                    'image_url': {'url': img_part}
+                                                }
+                                            )
+                                    else:
+                                        message['content'] = ''.join(text_parts)
 
                             new_form_data['messages'] = [
                                 *form_data['messages'],
                                 *tool_messages,
                             ]
-
-                            if image_urls:
-                                new_form_data['messages'].append(
-                                    {
-                                        'role': 'user',
-                                        'content': [
-                                            {
-                                                'type': 'text',
-                                                'text': 'Here are the images from the tool results above. Please analyze them.',
-                                            },
-                                            *[{'type': 'image_url', 'image_url': {'url': url}} for url in image_urls],
-                                        ],
-                                    }
-                                )
 
                         res = await generate_chat_completion(
                             request,
@@ -5071,6 +5125,16 @@ async def streaming_chat_response_handler(response, ctx):
                                 },
                             }
                         )
+
+                        if not metadata.get('chat_id', '').startswith('channel:'):
+                            await Chats.upsert_message_to_chat_by_id_and_message_id(
+                                metadata['chat_id'],
+                                metadata['message_id'],
+                                {
+                                    'content': serialize_output(output),
+                                    'output': output,
+                                },
+                            )
 
                         try:
                             new_form_data = {

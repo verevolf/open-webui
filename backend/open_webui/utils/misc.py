@@ -278,6 +278,10 @@ def convert_output_to_messages(
                     url = part.get('image_url', '')
                     if url:
                         image_urls.append(url)
+                elif part.get('type') == 'image_url':
+                    url = part.get('image_url', '').get('url', '')
+                    if url:
+                        image_urls.append(url)
 
             if image_urls:
                 # Multimodal tool content with image(s)
@@ -286,8 +290,8 @@ def convert_output_to_messages(
                         'role': 'tool',
                         'tool_call_id': item.get('call_id', ''),
                         'content': [
-                            {'type': 'input_text', 'text': content},
-                            *[{'type': 'input_image', 'image_url': url} for url in image_urls],
+                            {'type': 'text', 'text': content},
+                            *[{'type': 'image_url', 'image_url': {'url': url}} for url in image_urls],
                         ],
                     }
                 )

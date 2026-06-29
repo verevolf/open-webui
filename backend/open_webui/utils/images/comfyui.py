@@ -142,6 +142,7 @@ class ComfyUICreateImageForm(BaseModel):
 
     steps: Optional[int] = None
     seed: Optional[int] = None
+    batch_size: Optional[int] = None
 
 
 def _apply_workflow_nodes(workflow, nodes, model, payload):
@@ -174,6 +175,10 @@ def _apply_workflow_nodes(workflow, nodes, model, payload):
             elif node.type == 'n':
                 for node_id in node.node_ids:
                     workflow[node_id]['inputs'][node.key if node.key else 'batch_size'] = payload.n
+            elif node.type == 'batch_size':
+                value = payload.batch_size if payload.batch_size is not None else 1
+                for node_id in node.node_ids:
+                    workflow[node_id]['inputs'][node.key if node.key else 'batch_size'] = value
             elif node.type == 'steps':
                 for node_id in node.node_ids:
                     workflow[node_id]['inputs'][node.key if node.key else 'steps'] = payload.steps
@@ -225,6 +230,7 @@ class ComfyUIEditImageForm(BaseModel):
 
     steps: Optional[int] = None
     seed: Optional[int] = None
+    batch_size: Optional[int] = None
 
 
 async def comfyui_edit_image(model: str, payload: ComfyUIEditImageForm, client_id, base_url, api_key):
