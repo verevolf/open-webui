@@ -1685,7 +1685,7 @@
 
 	const scrollToBottom = async (behavior = 'auto') => {
 		await tick();
-		if (messagesContainerElement) {
+		if (messagesContainerElement && autoScroll) {
 			messagesContainerElement.scrollTo({
 				top: messagesContainerElement.scrollHeight,
 				behavior
@@ -1698,13 +1698,13 @@
 			// (new sizes reveal more content, triggering further size resolution), so
 			// we re-scroll across two animation frames to land at the true bottom.
 			requestAnimationFrame(() => {
-				if (messagesContainerElement) {
+				if (messagesContainerElement && autoScroll) {
 					messagesContainerElement.scrollTo({
 						top: messagesContainerElement.scrollHeight,
 						behavior
 					});
 					requestAnimationFrame(() => {
-						if (messagesContainerElement) {
+						if (messagesContainerElement && autoScroll) {
 							messagesContainerElement.scrollTo({
 								top: messagesContainerElement.scrollHeight,
 								behavior

@@ -59,6 +59,11 @@
 			type: 'seed',
 			key: 'seed',
 			node_ids: ''
+		},
+		{
+			type: 'batch_size',
+			key: 'batch_size',
+			node_ids: ''
 		}
 	];
 
@@ -87,6 +92,11 @@
 		{
 			type: 'height',
 			key: 'height',
+			node_ids: ''
+		},
+		{
+			type: 'batch_size',
+			key: 'batch_size',
 			node_ids: ''
 		}
 	];
@@ -222,6 +232,9 @@
 			if (!config) {
 				return;
 			}
+
+			config.IMAGE_GENERATION_ENGINE = 'comfyui';
+			config.IMAGE_EDIT_ENGINE = 'comfyui';
 
 			if (config.ENABLE_IMAGE_GENERATION) {
 				getModels();
@@ -406,14 +419,10 @@
 							</div>
 
 							<select
-								class="w-fit pr-8 cursor-pointer rounded-sm px-2 text-xs bg-transparent outline-hidden text-right"
-								bind:value={config.IMAGE_GENERATION_ENGINE}
-								placeholder={$i18n.t('Select Engine')}
+								class="w-fit pr-8 rounded-sm px-2 text-xs bg-transparent outline-hidden text-right opacity-60"
+								disabled
 							>
-								<option value="openai">{$i18n.t('Default (Open AI)')}</option>
-								<option value="comfyui">{$i18n.t('ComfyUI')}</option>
-								<option value="automatic1111">{$i18n.t('Automatic1111')}</option>
-								<option value="gemini">{$i18n.t('Gemini')}</option>
+								<option value="comfyui" selected>{$i18n.t('ComfyUI')}</option>
 							</select>
 						</div>
 					</div>
@@ -954,13 +963,10 @@
 							</div>
 
 							<select
-								class="w-fit pr-8 cursor-pointer rounded-sm px-2 text-xs bg-transparent outline-hidden text-right"
-								bind:value={config.IMAGE_EDIT_ENGINE}
-								placeholder={$i18n.t('Select Engine')}
+								class="w-fit pr-8 rounded-sm px-2 text-xs bg-transparent outline-hidden text-right opacity-60"
+								disabled
 							>
-								<option value="openai">{$i18n.t('Default (Open AI)')}</option>
-								<option value="comfyui">{$i18n.t('ComfyUI')}</option>
-								<option value="gemini">{$i18n.t('Gemini')}</option>
+								<option value="comfyui" selected>{$i18n.t('ComfyUI')}</option>
 							</select>
 						</div>
 					</div>

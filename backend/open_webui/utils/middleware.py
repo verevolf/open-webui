@@ -998,6 +998,30 @@ async def process_tool_result(
                         elif resource.get('uri'):
                             tool_response.append(resource.get('uri'))
             tool_result = tool_response[0] if len(tool_response) == 1 else tool_response
+        elif tool_type == 'builtin':  # Built-in tools (e.g. generate_image, edit_image)
+            tool_response = []
+            for item in tool_result:
+                if isinstance(item, dict):
+                    if item.get('type') == 'text':
+                        text = item.get('text', '')
+                        if isinstance(text, str):
+                            try:
+                                text = json.loads(text)
+                            except json.JSONDecodeError:
+                                pass
+                        tool_response.append(text)
+                    elif item.get('type') == 'image':
+                        data_uri = item.get('data', '')
+                        if data_uri:
+                            tool_result_files.append(
+                                {
+                                    'type': 'image',
+                                    'url': data_uri,
+                                }
+                            )
+                elif isinstance(item, str):
+                    tool_response.append(item)
+            tool_result = tool_response[0] if len(tool_response) == 1 else tool_response
         else:  # OpenAPI
             for item in tool_result:
                 if isinstance(item, str) and item.startswith('data:'):
@@ -3963,16 +3987,34 @@ async def streaming_chat_response_handler(response, ctx):
                     last_delta_data = None
                     last_delta_type = None
 
+                    def strip_frontend_output(output):
+                        if not output:
+                            return output
+                        result = []
+                        for item in output:
+                            if isinstance(item, dict) and item.get('type') == 'function_call_output':
+                                parts = item.get('output', [])
+                                if any(p.get('type') == 'input_image' for p in parts):
+                                    item = {
+                                        **item,
+                                        'output': [p for p in parts if p.get('type') != 'input_image'],
+                                    }
+                            result.append(item)
+                        return result
+
                     async def flush_pending_delta_data(threshold: int = 0):
                         nonlocal delta_count
                         nonlocal last_delta_data
                         nonlocal last_delta_type
 
                         if delta_count >= threshold and last_delta_data:
+                            data = last_delta_data
+                            if 'output' in data:
+                                data = {**data, 'output': strip_frontend_output(data['output'])}
                             await event_emitter(
                                 {
                                     'type': 'chat:completion',
-                                    'data': last_delta_data,
+                                    'data': data,
                                 }
                             )
                             delta_count = 0
@@ -4525,10 +4567,16 @@ async def streaming_chat_response_handler(response, ctx):
                                 if delta:
                                     await queue_pending_delta_data(data, delta_type)
                                 else:
+                                    emit_data = data
+                                    if 'output' in emit_data:
+                                        emit_data = {
+                                            **emit_data,
+                                            'output': strip_frontend_output(emit_data['output']),
+                                        }
                                     await event_emitter(
                                         {
                                             'type': 'chat:completion',
-                                            'data': data,
+                                            'data': emit_data,
                                         }
                                     )
                         except (asyncio.CancelledError, KeyboardInterrupt):
@@ -4948,37 +4996,37 @@ async def streaming_chat_response_handler(response, ctx):
                                 output, raw=True, reasoning_format=get_reasoning_format(model)
                             )
 
-                            # Chat Completions providers don't support multimodal
-                            # tool messages.  Extract images into a user message.
-                            image_urls = []
                             for message in tool_messages:
                                 if message.get('role') == 'tool' and isinstance(message.get('content'), list):
                                     text_parts = []
+                                    img_parts = []
                                     for part in message['content']:
-                                        if part.get('type') == 'input_text':
+                                        if part.get('type') in ('input_text', 'text'):
                                             text_parts.append(part.get('text', ''))
-                                        elif part.get('type') == 'input_image':
-                                            image_urls.append(part.get('image_url', ''))
-                                    message['content'] = ''.join(text_parts)
+                                        elif part.get('type') in ('input_image', 'image_url'):
+                                            img_parts.append(
+                                                part.get('image_url', '') if isinstance(part.get('image_url'), str)
+                                                else part.get('image_url', {}).get('url', '')
+                                            )
+                                    if len(img_parts):
+                                        message['content'] = [{
+                                            'type': 'text',
+                                            'text': ''.join(text_parts)
+                                        }]
+                                        for img_part in img_parts:
+                                            message['content'].append(
+                                                {
+                                                    'type': 'image_url',
+                                                    'image_url': {'url': img_part}
+                                                }
+                                            )
+                                    else:
+                                        message['content'] = ''.join(text_parts)
 
                             new_form_data['messages'] = [
                                 *form_data['messages'],
                                 *tool_messages,
                             ]
-
-                            if image_urls:
-                                new_form_data['messages'].append(
-                                    {
-                                        'role': 'user',
-                                        'content': [
-                                            {
-                                                'type': 'text',
-                                                'text': 'Here are the images from the tool results above. Please analyze them.',
-                                            },
-                                            *[{'type': 'image_url', 'image_url': {'url': url}} for url in image_urls],
-                                        ],
-                                    }
-                                )
 
                         res = await generate_chat_completion(
                             request,

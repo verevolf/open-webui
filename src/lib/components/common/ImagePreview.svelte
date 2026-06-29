@@ -91,7 +91,7 @@
 							return;
 						} else if (src.startsWith('blob:')) {
 							// Handle blob URLs
-							fetch(src)
+							fetch(src, { credentials: 'include' })
 								.then((response) => response.blob())
 								.then((blob) => {
 									// detect the MIME type from the blob
@@ -119,7 +119,7 @@
 							src.startsWith('https://')
 						) {
 							// Handle remote URLs
-							fetch(src)
+							fetch(src, { credentials: 'include' })
 								.then((response) => response.blob())
 								.then((blob) => {
 									// detect the MIME type from the blob
