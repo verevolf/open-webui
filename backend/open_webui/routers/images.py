@@ -30,6 +30,7 @@ from open_webui.internal.db import get_async_session
 from open_webui.models.chats import Chats
 from open_webui.models.config import Config
 from open_webui.retrieval.web.utils import get_ssrf_safe_session, validate_url
+from open_webui.models.files import Files
 from open_webui.routers.files import get_file_content_by_id, upload_file_handler
 from open_webui.utils.access_control import has_permission
 from open_webui.utils.auth import get_admin_user, get_verified_user
@@ -1188,3 +1189,30 @@ async def image_edits(
             error = e.message
 
         raise HTTPException(status_code=400, detail=ERROR_MESSAGES.DEFAULT(error))
+
+
+@router.get('/list', response_model=list[dict])
+async def list_user_images(
+    user=Depends(get_verified_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    files = await Files.get_files_by_user_id(user.id, db=db)
+    images = []
+    for file in files:
+        meta = file.meta or {}
+        content_type = meta.get('content_type', '')
+        if content_type.startswith('image/'):
+            is_generated = 'prompt' in (meta.get('data') or {})
+            images.append(
+                {
+                    'id': file.id,
+                    'filename': file.filename,
+                    'content_type': content_type,
+                    'source': 'generated' if is_generated else 'uploaded',
+                    'meta': meta,
+                    'created_at': file.created_at,
+                    'updated_at': file.updated_at,
+                }
+            )
+    images.sort(key=lambda x: x['created_at'], reverse=True)
+    return images
