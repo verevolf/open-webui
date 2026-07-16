@@ -6,8 +6,20 @@
 	import Tooltip from '../common/Tooltip.svelte';
 
 	import { updateUserSettings } from '$lib/apis/users';
+	import { getModels } from '$lib/apis';
 	import equal from 'fast-deep-equal';
 	const i18n = getContext('i18n');
+
+	const refreshModels = async () => {
+		models.set(
+			await getModels(
+				localStorage.token,
+				$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null),
+				false,
+				true
+			)
+		);
+	};
 
 	export let selectedModels = [''];
 	export let disabled = false;
@@ -99,6 +111,31 @@
 							</button>
 						</Tooltip>
 					</div>
+					{#if $config?.features?.enable_base_models_cache}
+						<div
+							class="  self-center mx-1 disabled:text-gray-600 disabled:hover:text-gray-600 -translate-y-[0.5px]"
+						>
+							<Tooltip content={$i18n.t('Refresh')}>
+								<button
+									class=" "
+									{disabled}
+									on:click={refreshModels}
+									aria-label="Refresh"
+								>
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										fill="none"
+										viewBox="0 0 24 24"
+										stroke-width="2"
+										stroke="currentColor"
+										class="size-3.5"
+									>
+										<path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+									</svg>
+								</button>
+							</Tooltip>
+						</div>
+					{/if}
 				{:else}
 					<div
 						class="  self-center mx-1 disabled:text-gray-600 disabled:hover:text-gray-600 -translate-y-[0.5px]"

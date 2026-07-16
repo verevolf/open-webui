@@ -69,16 +69,24 @@ async def get_all_models(request, refresh: bool = False, user: UserModel = None)
         'evaluation.arena.enable',
         'evaluation.arena.models',
     )
-    if (
-        request.app.state.MODELS
-        and request.app.state.BASE_MODELS
-        and (config.get('models.base_models_cache') and not refresh)
-    ):
-        base_models = request.app.state.BASE_MODELS
+    cache_enabled = config.get('models.base_models_cache')
+
+    if cache_enabled and not refresh:
+        if request.app.state.BASE_MODELS:
+            base_models = request.app.state.BASE_MODELS
+        else:
+            cached = await Config.get('models.base_models_cache_data')
+            if cached:
+                request.app.state.BASE_MODELS = cached
+                base_models = cached
+            else:
+                return []
     else:
         base_models = await get_all_base_models(request, user=user)
         if base_models:
             request.app.state.BASE_MODELS = base_models
+            if cache_enabled:
+                await Config.upsert({'models.base_models_cache_data': base_models})
         else:
             base_models = request.app.state.BASE_MODELS
 

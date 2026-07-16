@@ -367,12 +367,14 @@
 					})
 				);
 
-				models.set(
-					await getModels(
-						localStorage.token,
-						$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null)
-					)
-				);
+				if (!$config?.features?.enable_base_models_cache) {
+					models.set(
+						await getModels(
+							localStorage.token,
+							$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null)
+						)
+					);
+				}
 			} else {
 				toast.error($i18n.t('Download canceled'));
 			}
@@ -427,12 +429,14 @@
 
 		if (res) {
 			toast.success($i18n.t('Model unloaded successfully'));
-			models.set(
-				await getModels(
-					localStorage.token,
-					$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null)
-				)
-			);
+			if (!$config?.features?.enable_base_models_cache) {
+				models.set(
+					await getModels(
+						localStorage.token,
+						$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null)
+					)
+				);
+			}
 		}
 	};
 
@@ -463,12 +467,14 @@
 				value = '';
 			}
 
-			models.set(
-				await getModels(
-					localStorage.token,
-					$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null)
-				)
-			);
+			if (!$config?.features?.enable_base_models_cache) {
+				models.set(
+					await getModels(
+						localStorage.token,
+						$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null)
+					)
+				);
+			}
 		}
 
 		deleteModelTarget = null;
@@ -524,14 +530,16 @@
 			false)
 				? 'dark:placeholder-gray-100 placeholder-gray-800'
 				: 'placeholder-gray-400'}"
-			on:mouseenter={async () => {
+		on:mouseenter={async () => {
+			if (!$config?.features?.enable_base_models_cache) {
 				models.set(
 					await getModels(
 						localStorage.token,
 						$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null)
 					)
 				);
-			}}
+			}
+		}}
 		>
 			{#if selectedModel}
 				{selectedModel.label}

@@ -539,7 +539,9 @@
 	const saveSettings = async (updated) => {
 		console.log(updated);
 		await settings.set({ ...$settings, ...updated });
-		await models.set(await getModels());
+		if (!$config?.features?.enable_base_models_cache) {
+			await models.set(await getModels());
+		}
 		await updateUserSettings(localStorage.token, { ui: $settings });
 	};
 

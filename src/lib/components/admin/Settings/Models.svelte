@@ -171,6 +171,18 @@
 		await init();
 	};
 
+	const refreshModelsHandler = async () => {
+		_models.set(
+			await getModels(
+				localStorage.token,
+				$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null),
+				false,
+				true
+			)
+		);
+		await init();
+	};
+
 	const downloadModels = async (models) => {
 		let blob = new Blob([JSON.stringify(models)], {
 			type: 'application/json'
@@ -427,6 +439,17 @@
 								}
 							}}
 						/>
+ 
+						{#if $config?.features?.enable_base_models_cache}
+							<button
+								class="flex text-xs items-center space-x-1 px-3 py-1.5 rounded-xl bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 dark:text-gray-200 transition"
+								on:click={refreshModelsHandler}
+							>
+								<div class=" self-center font-medium line-clamp-1">
+									{$i18n.t('Refresh')}
+								</div>
+							</button>
+						{/if}
 
 						<button
 							class="flex text-xs items-center space-x-1 px-3 py-1.5 rounded-xl bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 dark:text-gray-200 transition"

@@ -353,28 +353,33 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(scheduler_worker_loop(app))
 
     if await Config.get('models.base_models_cache'):
-        try:
-            await get_all_models(
-                Request(
-                    # Creating a mock request object to pass to get_all_models
-                    {
-                        'type': 'http',
-                        'asgi.version': '3.0',
-                        'asgi.spec_version': '2.0',
-                        'method': 'GET',
-                        'path': '/internal',
-                        'query_string': b'',
-                        'headers': Headers({}).raw,
-                        'client': ('127.0.0.1', 12345),
-                        'server': ('127.0.0.1', 80),
-                        'scheme': 'http',
-                        'app': app,
-                    }
-                ),
-                None,
-            )
-        except Exception as e:
-            log.warning(f'Failed to pre-fetch models at startup: {e}')
+        cached = await Config.get('models.base_models_cache_data')
+        if cached:
+            app.state.BASE_MODELS = cached
+            log.info('Loaded base models from persistent cache')
+        else:
+            log.info('No cached models found, pre-fetching from providers')
+            try:
+                await get_all_models(
+                    Request(
+                        # Creating a mock request object to pass to get_all_models
+                        {
+                            'type': 'http',
+                            'asgi.version': '3.0',
+                            'asgi.spec_version': '2.0',
+                            'method': 'GET',
+                            'path': '/internal',
+                            'query_string': b'',
+                            'headers': Headers({}).raw,
+                            'client': ('127.0.0.1', 12345),
+                            'server': ('127.0.0.1', 80),
+                            'app': app,
+                        }
+                    ),
+                    None,
+                )
+            except Exception as e:
+                log.warning(f'Failed to pre-fetch models at startup: {e}')
 
     # Pre-fetch tool server specs so the first request doesn't pay the latency cost
     if len(await Config.get('tool_server.connections', []) or []) > 0:
@@ -849,6 +854,14 @@ async def get_models(request: Request, refresh: bool = False, user=Depends(get_v
 
 @app.get('/api/models/base')
 async def get_base_models(request: Request, user=Depends(get_admin_user)):
+    if await Config.get('models.base_models_cache'):
+        if request.app.state.BASE_MODELS:
+            return {'data': request.app.state.BASE_MODELS}
+        cached = await Config.get('models.base_models_cache_data')
+        if cached:
+            request.app.state.BASE_MODELS = cached
+            return {'data': cached}
+        return {'data': []}
     models = await get_all_base_models(request, user=user)
     return {'data': models}
 
@@ -1858,6 +1871,7 @@ async def get_app_config(request: Request):
         'ui.enable_login_form',
         'auth.enable_api_keys',
         'ui.enable_password_change_form',
+        'models.base_models_cache',
         'direct.enable',
         'folders.enable',
         'folders.max_file_count',
@@ -1926,6 +1940,7 @@ async def get_app_config(request: Request):
                     'enable_pyodide_file_persistence': ENABLE_PYODIDE_FILE_PERSISTENCE,
                     'enable_public_active_users_count': ENABLE_PUBLIC_ACTIVE_USERS_COUNT,
                     'enable_easter_eggs': ENABLE_EASTER_EGGS,
+                    'enable_base_models_cache': config.get('models.base_models_cache'),
                     'enable_direct_connections': config.get('direct.enable'),
                     'enable_folders': config.get('folders.enable'),
                     'folder_max_file_count': config.get('folders.max_file_count'),

@@ -139,6 +139,8 @@ async def set_connections_config(
     user=Depends(get_admin_user),
 ):
     await Config.upsert(config_updates(form_data.model_dump(), CONNECTIONS_CONFIG_KEYS))
+    if not form_data.ENABLE_BASE_MODELS_CACHE:
+        await Config.delete('models.base_models_cache_data')
     values = await get_config_values(CONNECTIONS_CONFIG_KEYS)
     await publish_event(
         request,

@@ -81,7 +81,9 @@
 
 			if (res) {
 				toast.success($i18n.t('OpenAI API settings updated'));
-				await models.set(await getModels());
+				if (!$config?.features?.enable_base_models_cache) {
+					await models.set(await getModels());
+				}
 			}
 		}
 	};
@@ -101,7 +103,9 @@
 
 			if (res) {
 				toast.success($i18n.t('Ollama API settings updated'));
-				await models.set(await getModels());
+				if (!$config?.features?.enable_base_models_cache) {
+					await models.set(await getModels());
+				}
 			}
 		}
 	};
@@ -113,7 +117,9 @@
 
 		if (res) {
 			toast.success($i18n.t('Connections settings updated'));
-			await models.set(await getModels());
+			if (!$config?.features?.enable_base_models_cache) {
+				await models.set(await getModels());
+			}
 			await config.set(await getBackendConfig());
 		}
 	};
