@@ -361,6 +361,12 @@
 			})()
 		]);
 
+		// If fewer chats than the page limit (60) were returned, all chats are loaded
+		// This prevents the Loader from immediately triggering an unnecessary page 2 fetch
+		if (($chats?.length ?? 0) < 60) {
+			allChatsLoaded = true;
+		}
+
 		// Enable pagination
 		scrollPaginationEnabled.set(true);
 	};
