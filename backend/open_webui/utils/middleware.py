@@ -229,6 +229,175 @@ def _split_tool_calls(
     return expanded
 
 
+def _extract_tool_calls_from_reasoning_text(text: str) -> tuple[str, list]:
+    """Extract tool calls embedded in reasoning text (e.g., inside <think> blocks).
+
+    Handles XML format like:
+      <tool_call>
+      <function=NAME>
+      <parameter=KEY>
+      VALUE
+      </parameter>
+      </function>
+      </tool_call>
+
+    Also handles JSON formats like {"name": "...", "arguments": {...}}
+    or {"tool_calls": [{"name": "...", "parameters": {...}}]}
+
+    Returns (cleaned_text, list_of_tool_call_dicts_in_standard_format).
+    """
+    if not text:
+        return text, []
+
+    extracted = []
+    cleaned = text
+
+    # Pattern 1: <tool_call>...</tool_call> XML blocks
+    tool_call_pattern = re.compile(r'<tool_call>(.*?)</tool_call>', re.DOTALL)
+
+    for match in tool_call_pattern.finditer(text):
+        block = match.group(1).strip()
+        raw_block = match.group(0)
+
+        # Try XML format: <function=NAME> with <parameter=KEY>VALUE</parameter>
+        func_match = re.search(r'<function=(\w+)>', block)
+        if func_match:
+            func_name = func_match.group(1)
+            params = {}
+            param_pattern = re.compile(r'<parameter=(\w+)>\s*(.*?)\s*</parameter>', re.DOTALL)
+            for pm in param_pattern.finditer(block):
+                pname = pm.group(1)
+                pvalue = pm.group(2).strip()
+                try:
+                    pvalue = json.loads(pvalue)
+                except (json.JSONDecodeError, ValueError):
+                    pass
+                params[pname] = pvalue
+
+            extracted.append(
+                {
+                    'id': f'call_{uuid4().hex[:24]}',
+                    'function': {'name': func_name, 'arguments': json.dumps(params)},
+                }
+            )
+            cleaned = cleaned.replace(raw_block, '')
+            continue
+
+        # Try JSON format inside <tool_call> tags
+        try:
+            data = json.loads(block)
+            calls = _parse_json_tool_call_to_list(data)
+            if calls:
+                extracted.extend(calls)
+                cleaned = cleaned.replace(raw_block, '')
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    # Pattern 2: bare JSON tool calls (not wrapped in <tool_call> tags)
+    # Use JSONDecoder to scan for valid JSON objects in the text
+    if not extracted:
+        decoder = json.JSONDecoder()
+        position = 0
+        while position < len(text):
+            # Skip non-JSON characters
+            while position < len(text) and text[position] != '{':
+                position += 1
+            if position >= len(text):
+                break
+            try:
+                obj, end = decoder.raw_decode(text, position)
+                if isinstance(obj, dict):
+                    calls = _parse_json_tool_call_to_list(obj)
+                    if calls:
+                        extracted.extend(calls)
+                        cleaned = cleaned.replace(text[position:end], '')
+                position = end
+            except (json.JSONDecodeError, ValueError):
+                position += 1
+
+    return cleaned.strip(), extracted
+
+
+def _parse_json_tool_call_to_list(data: dict) -> list:
+    """Parse a JSON tool call dict into a list of standard-format tool calls.
+
+    Supports these formats:
+      {"tool_calls": [{"name": "...", "parameters": {...}}]}
+      {"name": "...", "arguments": {...}}
+      {"function": "name", "arguments": {...}}
+      {"function": {"name": "...", "arguments": "..."}}
+    """
+    calls = []
+
+    if 'tool_calls' in data and isinstance(data.get('tool_calls'), list):
+        for tc in data['tool_calls']:
+            name = tc.get('name') or tc.get('function') or ''
+            if isinstance(name, dict):
+                name = name.get('name', '')
+            params = tc.get('parameters') or tc.get('arguments') or {}
+            if isinstance(params, str):
+                try:
+                    params = json.loads(params)
+                except (json.JSONDecodeError, ValueError):
+                    pass
+            if name:
+                calls.append(
+                    {
+                        'id': f'call_{uuid4().hex[:24]}',
+                        'function': {
+                            'name': name,
+                            'arguments': json.dumps(params) if isinstance(params, dict) else str(params),
+                        },
+                    }
+                )
+        return calls
+
+    if 'name' in data and ('arguments' in data or 'parameters' in data):
+        name = data['name']
+        params = data.get('arguments') or data.get('parameters') or {}
+        if isinstance(params, str):
+            try:
+                params = json.loads(params)
+            except (json.JSONDecodeError, ValueError):
+                pass
+        calls.append(
+            {
+                'id': f'call_{uuid4().hex[:24]}',
+                'function': {
+                    'name': name,
+                    'arguments': json.dumps(params) if isinstance(params, dict) else str(params),
+                },
+            }
+        )
+        return calls
+
+    if 'function' in data:
+        func = data['function']
+        if isinstance(func, dict):
+            name = func.get('name', '')
+            params = func.get('arguments', {})
+        else:
+            name = func
+            params = data.get('arguments') or data.get('parameters') or {}
+        if name:
+            if isinstance(params, str):
+                try:
+                    params = json.loads(params)
+                except (json.JSONDecodeError, ValueError):
+                    pass
+            calls.append(
+                {
+                    'id': f'call_{uuid4().hex[:24]}',
+                    'function': {
+                        'name': name,
+                        'arguments': json.dumps(params) if isinstance(params, dict) else str(params),
+                    },
+                }
+            )
+
+    return calls
+
+
 def get_citation_source_from_tool_result(
     tool_name: str, tool_params: dict, tool_result: str, tool_id: str = ''
 ) -> list[dict]:
@@ -4651,6 +4820,25 @@ async def streaming_chat_response_handler(response, ctx):
                                 )
                         if responses_api_tool_calls:
                             tool_calls.append(_split_tool_calls(responses_api_tool_calls))
+
+                    # Check for tool calls embedded in reasoning content
+                    # (e.g., inside <think> blocks) when no native tool calls detected
+                    if not tool_calls and output:
+                        for item in output:
+                            if item.get('type') == 'reasoning':
+                                reasoning_text = ''
+                                parts = item.get('content', [])
+                                if parts and parts[-1].get('type') == 'output_text':
+                                    reasoning_text = parts[-1].get('text', '')
+
+                                if not reasoning_text:
+                                    continue
+
+                                cleaned_text, extracted = _extract_tool_calls_from_reasoning_text(reasoning_text)
+                                if extracted:
+                                    parts[-1]['text'] = cleaned_text
+                                    tool_calls.append(_split_tool_calls(extracted))
+                                    break
 
                 try:
                     await stream_body_handler(response, form_data)
